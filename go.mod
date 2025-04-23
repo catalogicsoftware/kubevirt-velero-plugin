@@ -1,6 +1,7 @@
 module kubevirt.io/kubevirt-velero-plugin
 
 go 1.22.3
+toolchain go1.24.1
 
 require (
 	github.com/google/uuid v1.6.0
@@ -18,7 +19,7 @@ require (
 	k8s.io/utils v0.0.0-20240711033017-18e509b52bc8
 	kubevirt.io/api v1.5.0
 	kubevirt.io/client-go v1.5.0
-	kubevirt.io/containerized-data-importer-api v1.61.0
+	kubevirt.io/containerized-data-importer-api v1.62.0
 )
 
 require (
