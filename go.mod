@@ -1,6 +1,6 @@
 module kubevirt.io/kubevirt-velero-plugin
 
-go 1.22.3
+go 1.23.12
 
 require (
 	github.com/google/uuid v1.6.0
