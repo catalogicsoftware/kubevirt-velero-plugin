@@ -46,4 +46,5 @@ go build \
     -o ${OUTPUT} \
     -installsuffix "static" \
     -mod=readonly \
+    -buildvcs=false \
     ./
