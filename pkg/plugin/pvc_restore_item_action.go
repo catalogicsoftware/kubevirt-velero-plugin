@@ -21,11 +21,13 @@ package plugin
 
 import (
 	"fmt"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/vmware-tanzu/velero/pkg/plugin/velero"
 
 	corev1api "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -47,7 +49,6 @@ func (p *PVCRestoreItemAction) AppliesTo() (velero.ResourceSelector, error) {
 		nil
 }
 
-// Execute if the PVC and the corresponding DV is not SUCCESSFULL - then skip PVC
 func (p *PVCRestoreItemAction) Execute(input *velero.RestoreItemActionExecuteInput) (*velero.RestoreItemActionExecuteOutput, error) {
 	p.log.Info("Executing PVCRestoreItemAction")
 	if input == nil {
@@ -59,11 +60,58 @@ func (p *PVCRestoreItemAction) Execute(input *velero.RestoreItemActionExecuteInp
 		return nil, errors.WithStack(err)
 	}
 	p.log.Infof("handling PVC %v/%v", pvc.GetNamespace(), pvc.GetName())
+
 	annotations := pvc.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+
 	_, inProgress := annotations[AnnInProgress]
 	if inProgress {
 		return velero.NewRestoreItemActionExecuteOutput(input.Item).WithoutRestore(), nil
 	}
 
+	// If the PVC is owned by a DataVolume and the populatedFor annotation is
+	// missing, add it. This is needed when the backup bundle was not produced
+	// by a standard Velero backup (e.g., custom inventory for DR), so the
+	// DVBackupItemAction never ran and the annotation is absent from the
+	// manifest. Without this annotation, CDI's admission webhook will reject
+	// the DataVolume restore because the destination PVC already exists.
+	if _, hasPopulatedFor := annotations[AnnPopulatedFor]; !hasPopulatedFor {
+		dvName := getOwnerDataVolumeName(&pvc)
+		if dvName != "" {
+			p.log.Infof("PVC %v/%v is owned by DataVolume %v but missing %v annotation, adding it",
+				pvc.GetNamespace(), pvc.GetName(), dvName, AnnPopulatedFor)
+			annotations[AnnPopulatedFor] = dvName
+			pvc.SetAnnotations(annotations)
+
+			pvcMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&pvc)
+			if err != nil {
+				return nil, errors.WithStack(err)
+			}
+			return velero.NewRestoreItemActionExecuteOutput(&unstructured.Unstructured{Object: pvcMap}), nil
+		}
+	}
+
 	return velero.NewRestoreItemActionExecuteOutput(input.Item), nil
+}
+
+// getOwnerDataVolumeName returns the name of the DataVolume that owns this PVC,
+// using multiple detection methods:
+//  1. ownerReferences with Kind=DataVolume
+//  2. CDI label cdi.kubevirt.io/storage.dataVolumeName
+func getOwnerDataVolumeName(pvc *corev1api.PersistentVolumeClaim) string {
+	for _, ownerRef := range pvc.GetOwnerReferences() {
+		if ownerRef.Kind == "DataVolume" {
+			return ownerRef.Name
+		}
+	}
+
+	if labels := pvc.GetLabels(); labels != nil {
+		if dvName, ok := labels["cdi.kubevirt.io/storage.dataVolumeName"]; ok && dvName != "" {
+			return dvName
+		}
+	}
+
+	return ""
 }
