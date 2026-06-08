@@ -74,16 +74,16 @@ node("cloudcasa-build") {
                     docker buildx build \
                         --platform linux/amd64 \
                         -t ${imageRef}-amd64 \
-                        -f _output/bin/linux/amd64/Dockerfile \
+                        -f \${WORKSPACE}/_output/bin/linux/amd64/Dockerfile \
                         --push \
-                        _output/bin/linux/amd64
+                        \${WORKSPACE}/_output/bin/linux/amd64
 
                     docker buildx build \
                         --platform linux/arm64 \
                         -t ${imageRef}-arm64 \
-                        -f _output/bin/linux/arm64/Dockerfile \
+                        -f \${WORKSPACE}/_output/bin/linux/arm64/Dockerfile \
                         --push \
-                        _output/bin/linux/arm64
+                        \${WORKSPACE}/_output/bin/linux/arm64
 
                     docker buildx imagetools create \
                         --tag ${imageRef} \
