@@ -50,30 +50,17 @@ node("cloudcasa-build") {
 
                     docker run --rm \
                         -v \${WORKSPACE}:/workspace \
-                        ${goBuilderImage} bash -c "
-                            mkdir -p /workspace/_output /workspace/.go
-                            chown -R \$(id -u):\$(id -g) /workspace/_output /workspace/.go || true
-                        "
-
-                    docker run --rm \
-                        -u \$(id -u):\$(id -g) \
-                        -v \${WORKSPACE}:/workspace \
                         -w /workspace \
-                        -e HOME=/tmp/home \
-                        -e XDG_CACHE_HOME=/tmp/cache \
                         -e GOPATH=/workspace/.go \
                         -e GOMODCACHE=/workspace/.go/pkg/mod \
                         -e GOCACHE=/workspace/.go/cache \
                         ${goBuilderImage} bash -c "
                             set -eu
-                            mkdir -p /tmp/home /tmp/cache
                             go version
                             mkdir -p _output/bin/linux/amd64 _output/bin/linux/arm64
-                            HOME=/tmp/home XDG_CACHE_HOME=/tmp/cache GOCACHE=/workspace/.go/cache GOPATH=/workspace/.go GOMODCACHE=/workspace/.go/pkg/mod \\
                             GOOS=linux GOARCH=amd64 PKG=kubevirt.io/kubevirt-velero-plugin BIN=kubevirt-velero-plugin \\
                                 OUTPUT_DIR=\$(pwd)/_output/bin/linux/amd64 GO111MODULE=on GOFLAGS=-mod=readonly \\
                                 ./hack/build/build.sh
-                            HOME=/tmp/home XDG_CACHE_HOME=/tmp/cache GOCACHE=/workspace/.go/cache GOPATH=/workspace/.go GOMODCACHE=/workspace/.go/pkg/mod \\
                             GOOS=linux GOARCH=arm64 PKG=kubevirt.io/kubevirt-velero-plugin BIN=kubevirt-velero-plugin \\
                                 OUTPUT_DIR=\$(pwd)/_output/bin/linux/arm64 GO111MODULE=on GOFLAGS=-mod=readonly \\
                                 ./hack/build/build.sh
