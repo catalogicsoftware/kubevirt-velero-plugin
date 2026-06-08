@@ -52,6 +52,9 @@ node("cloudcasa-build") {
                         -u \$(id -u):\$(id -g) \
                         -v \${WORKSPACE}:/workspace \
                         -w /workspace \
+                        -e GOPATH=/workspace/.go \
+                        -e GOMODCACHE=/workspace/.go/pkg/mod \
+                        -e GOCACHE=/workspace/.go/cache \
                         ${goBuilderImage} bash -c "
                             set -eu
                             go version
