@@ -48,8 +48,21 @@ node("cloudcasa-build") {
                 sh """
                     set -eu
 
-                    make build-local ARCH=linux-amd64 BUILD_IMAGE=${goBuilderImage} OCI_BIN=docker
-                    make build-local ARCH=linux-arm64 BUILD_IMAGE=${goBuilderImage} OCI_BIN=docker
+                    docker run --rm \
+                        -u \$(id -u):\$(id -g) \
+                        -v \${WORKSPACE}:/workspace \
+                        -w /workspace \
+                        ${goBuilderImage} bash -c "
+                            set -eu
+                            go version
+                            mkdir -p _output/bin/linux/amd64 _output/bin/linux/arm64
+                            GOOS=linux GOARCH=amd64 PKG=kubevirt.io/kubevirt-velero-plugin BIN=kubevirt-velero-plugin \\
+                                OUTPUT_DIR=\$(pwd)/_output/bin/linux/amd64 GO111MODULE=on GOFLAGS=-mod=readonly \\
+                                ./hack/build/build.sh
+                            GOOS=linux GOARCH=arm64 PKG=kubevirt.io/kubevirt-velero-plugin BIN=kubevirt-velero-plugin \\
+                                OUTPUT_DIR=\$(pwd)/_output/bin/linux/arm64 GO111MODULE=on GOFLAGS=-mod=readonly \\
+                                ./hack/build/build.sh
+                        "
 
                     cp Dockerfile _output/bin/linux/amd64/Dockerfile
                     cp Dockerfile _output/bin/linux/arm64/Dockerfile
