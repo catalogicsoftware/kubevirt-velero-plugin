@@ -64,31 +64,22 @@ node("cloudcasa-build") {
                             GOOS=linux GOARCH=arm64 PKG=kubevirt.io/kubevirt-velero-plugin BIN=kubevirt-velero-plugin \\
                                 OUTPUT_DIR=\$(pwd)/_output/bin/linux/arm64 GO111MODULE=on GOFLAGS=-mod=readonly \\
                                 ./hack/build/build.sh
-                            cp Dockerfile _output/bin/linux/amd64/Dockerfile
-                            cp Dockerfile _output/bin/linux/arm64/Dockerfile
                         "
 
-                    docker buildx inspect multiarch >/dev/null 2>&1 || docker buildx create --name multiarch
-                    docker buildx use multiarch
+                    # Copy Dockerfile to each arch-specific directory
+                    cp Dockerfile _output/bin/linux/amd64/
+                    cp Dockerfile _output/bin/linux/arm64/
 
-                    docker buildx build \
-                        --platform linux/amd64 \
-                        -t ${imageRef}-amd64 \
-                        -f \${WORKSPACE}/_output/bin/linux/amd64/Dockerfile \
-                        --push \
-                        \${WORKSPACE}/_output/bin/linux/amd64
+                    # Build each architecture 
+                    docker build -f _output/bin/linux/amd64/Dockerfile -t ${imageRef}-amd64 _output/bin/linux/amd64
+                    docker build -f _output/bin/linux/arm64/Dockerfile -t ${imageRef}-arm64 _output/bin/linux/arm64
 
-                    docker buildx build \
-                        --platform linux/arm64 \
-                        -t ${imageRef}-arm64 \
-                        -f \${WORKSPACE}/_output/bin/linux/arm64/Dockerfile \
-                        --push \
-                        \${WORKSPACE}/_output/bin/linux/arm64
+                    # Push individual arch images
+                    docker push ${imageRef}-amd64
+                    docker push ${imageRef}-arm64
 
-                    docker buildx imagetools create \
-                        --tag ${imageRef} \
-                        ${imageRef}-amd64 \
-                        ${imageRef}-arm64
+                    # Merge into multiarch manifest
+                    docker buildx imagetools create --tag ${imageRef} ${imageRef}-amd64 ${imageRef}-arm64
                 """
             }
 
