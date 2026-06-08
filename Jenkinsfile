@@ -49,13 +49,17 @@ node("cloudcasa-build") {
                     set -eu
 
                     docker run --rm \
+                        -u \$(id -u):\$(id -g) \
                         -v \${WORKSPACE}:/workspace \
                         -w /workspace \
+                        -e HOME=/workspace/.home \
+                        -e XDG_CACHE_HOME=/workspace/.cache \
                         -e GOPATH=/workspace/.go \
                         -e GOMODCACHE=/workspace/.go/pkg/mod \
                         -e GOCACHE=/workspace/.go/cache \
                         ${goBuilderImage} bash -c "
                             set -eu
+                            mkdir -p /workspace/.home /workspace/.cache
                             go version
                             mkdir -p _output/bin/linux/amd64 _output/bin/linux/arm64
                             GOOS=linux GOARCH=amd64 PKG=kubevirt.io/kubevirt-velero-plugin BIN=kubevirt-velero-plugin \\
