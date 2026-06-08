@@ -49,7 +49,6 @@ node("cloudcasa-build") {
                     set -eu
 
                     docker run --rm \
-                        -u \$(id -u):\$(id -g) \
                         -v \${WORKSPACE}:/workspace \
                         -w /workspace \
                         -e GOPATH=/workspace/.go \
