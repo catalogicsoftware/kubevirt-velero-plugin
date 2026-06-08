@@ -64,10 +64,9 @@ node("cloudcasa-build") {
                             GOOS=linux GOARCH=arm64 PKG=kubevirt.io/kubevirt-velero-plugin BIN=kubevirt-velero-plugin \\
                                 OUTPUT_DIR=\$(pwd)/_output/bin/linux/arm64 GO111MODULE=on GOFLAGS=-mod=readonly \\
                                 ./hack/build/build.sh
+                            cp Dockerfile _output/bin/linux/amd64/Dockerfile
+                            cp Dockerfile _output/bin/linux/arm64/Dockerfile
                         "
-
-                    cp Dockerfile _output/bin/linux/amd64/Dockerfile
-                    cp Dockerfile _output/bin/linux/arm64/Dockerfile
 
                     docker buildx inspect multiarch >/dev/null 2>&1 || docker buildx create --name multiarch
                     docker buildx use multiarch
