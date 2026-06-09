@@ -69,8 +69,8 @@ node("cloudcasa-build") {
                         "
 
                     # Build each architecture 
-                    docker build -f \${WORKSPACE}/_output/bin/linux/amd64/Dockerfile -t ${imageRef}-amd64 \${WORKSPACE}/_output/bin/linux/amd64
-                    docker build -f \${WORKSPACE}/_output/bin/linux/arm64/Dockerfile -t ${imageRef}-arm64 \${WORKSPACE}/_output/bin/linux/arm64
+                    docker build -f _output/bin/linux/amd64/Dockerfile -t ${imageRef}-amd64 _output/bin/linux/amd64
+                    docker build -f _output/bin/linux/arm64/Dockerfile -t ${imageRef}-arm64 _output/bin/linux/arm64
 
                     # Push individual arch images
                     docker push ${imageRef}-amd64
