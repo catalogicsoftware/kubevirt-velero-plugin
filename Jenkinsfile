@@ -59,10 +59,10 @@ node("cloudcasa-build") {
                             go version
                             mkdir -p _output/bin/linux/amd64 _output/bin/linux/arm64
                             GOOS=linux GOARCH=amd64 PKG=kubevirt.io/kubevirt-velero-plugin BIN=kubevirt-velero-plugin \\
-                                OUTPUT_DIR=\$(pwd)/_output/bin/linux/amd64 GO111MODULE=on GOFLAGS=-mod=readonly \\
+                                OUTPUT_DIR=_output/bin/linux/amd64 GO111MODULE=on GOFLAGS=-mod=readonly \\
                                 ./hack/build/build.sh
                             GOOS=linux GOARCH=arm64 PKG=kubevirt.io/kubevirt-velero-plugin BIN=kubevirt-velero-plugin \\
-                                OUTPUT_DIR=\$(pwd)/_output/bin/linux/arm64 GO111MODULE=on GOFLAGS=-mod=readonly \\
+                                OUTPUT_DIR=_output/bin/linux/arm64 GO111MODULE=on GOFLAGS=-mod=readonly \\
                                 ./hack/build/build.sh
                             cp Dockerfile _output/bin/linux/amd64/
                             cp Dockerfile _output/bin/linux/arm64/
