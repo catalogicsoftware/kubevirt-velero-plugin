@@ -68,15 +68,24 @@ node("cloudcasa-build") {
                             cp Dockerfile _output/bin/linux/arm64/
                         "
 
-                    # Build each architecture 
-                    docker build -f _output/bin/linux/amd64/Dockerfile -t ${imageRef}-amd64 _output/bin/linux/amd64
-                    docker build -f _output/bin/linux/arm64/Dockerfile -t ${imageRef}-arm64 _output/bin/linux/arm64
+                    docker buildx inspect multiarch >/dev/null 2>&1 || docker buildx create --name multiarch
+                    docker buildx use multiarch
 
-                    # Push individual arch images
-                    docker push ${imageRef}-amd64
-                    docker push ${imageRef}-arm64
+                    # Build and push each architecture with explicit platform metadata.
+                    docker buildx build \
+                        --platform linux/amd64 \
+                        --push \
+                        -f _output/bin/linux/amd64/Dockerfile \
+                        -t ${imageRef}-amd64 \
+                        _output/bin/linux/amd64
+                    docker buildx build \
+                        --platform linux/arm64 \
+                        --push \
+                        -f _output/bin/linux/arm64/Dockerfile \
+                        -t ${imageRef}-arm64 \
+                        _output/bin/linux/arm64
 
-                    # Merge into multiarch manifest
+                    # Merge the two single-arch images into the final multiarch manifest.
                     docker buildx imagetools create --tag ${imageRef} ${imageRef}-amd64 ${imageRef}-arm64
                 """
             }
