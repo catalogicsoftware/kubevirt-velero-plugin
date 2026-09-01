@@ -75,9 +75,22 @@ func (p *VMIRestorePlugin) Execute(input *velero.RestoreItemActionExecuteInput) 
 		return nil, errors.WithStack(err)
 	}
 
-	owned, ok := vmi.Annotations[AnnIsOwned]
-	if ok && owned == "true" {
+	// A VMI owned by another object must not be restored on its own. The owner's
+	// controller recreates it once the owner is restored.
+	if owned, ok := vmi.Annotations[AnnIsOwned]; ok && owned == "true" {
 		p.log.Info("VMI is owned by a VM, it doesn't need to be restored")
+		return velero.NewRestoreItemActionExecuteOutput(input.Item).WithoutRestore(), nil
+	}
+
+	// The AnnIsOwned annotation is added by VMIBackupItemAction during backup.
+	// This is not the case when the backup bundle was not produced by a standard
+	// Velero backup (e.g., a custom inventory process for DR), so the annotation
+	// is absent from the manifest. Fall back to the owner references, which are
+	// the same signal the backup action uses to add the annotation and which
+	// Velero preserves on the item being restored.
+	if isVMIOwned(vmi) {
+		p.log.Infof("VMI %v/%v has owner references but is missing the %v annotation, it doesn't need to be restored",
+			vmi.GetNamespace(), vmi.GetName(), AnnIsOwned)
 		return velero.NewRestoreItemActionExecuteOutput(input.Item).WithoutRestore(), nil
 	}
 

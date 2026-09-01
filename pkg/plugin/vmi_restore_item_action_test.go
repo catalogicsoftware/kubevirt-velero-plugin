@@ -65,6 +65,31 @@ func TestVmiRestoreExecute(t *testing.T) {
 			false,
 			map[string]string{},
 		},
+		{"Owned VMI missing the isOwned annotation should be skipped",
+			velero.RestoreItemActionExecuteInput{
+				Item: &unstructured.Unstructured{
+					Object: map[string]interface{}{
+						"apiVersion": "kubevirt.io",
+						"kind":       "VirtualMachineInstance",
+						"metadata": map[string]interface{}{
+							"name":      "test-vmi",
+							"namespace": "test-namespace",
+							"labels":    map[string]string{},
+							"ownerReferences": []interface{}{
+								map[string]interface{}{
+									"apiVersion": "kubevirt.io/v1",
+									"kind":       "VirtualMachine",
+									"name":       "test-vm",
+									"uid":        "test-uid",
+								},
+							},
+						},
+					},
+				},
+			},
+			true,
+			map[string]string{},
+		},
 		{"Restricted labels should be removed",
 			velero.RestoreItemActionExecuteInput{
 				Item: &unstructured.Unstructured{
