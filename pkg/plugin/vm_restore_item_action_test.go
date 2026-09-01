@@ -148,3 +148,141 @@ func TestVmRestoreExecute(t *testing.T) {
 		assert.Equal(t, "test-dv-2", dvs[3].Name)
 	})
 }
+
+func TestVmRestoreControllerRevisionNames(t *testing.T) {
+	// Velero resets the status of the item being restored before restore item
+	// actions run, so the revision names can only be read from the pristine item
+	// taken from the backup.
+	newVM := func(instancetypeRevision, preferenceRevision string, withStatus bool) *unstructured.Unstructured {
+		instancetype := map[string]interface{}{
+			"name": "test-instancetype",
+			"kind": "VirtualMachineClusterInstancetype",
+		}
+		if instancetypeRevision != "" {
+			instancetype["revisionName"] = instancetypeRevision
+		}
+		preference := map[string]interface{}{
+			"name": "test-preference",
+			"kind": "VirtualMachineClusterPreference",
+		}
+		if preferenceRevision != "" {
+			preference["revisionName"] = preferenceRevision
+		}
+		object := map[string]interface{}{
+			"apiVersion": "kubevirt.io/v1",
+			"kind":       "VirtualMachine",
+			"metadata": map[string]interface{}{
+				"name":      "test-vm",
+				"namespace": "test-namespace",
+			},
+			"spec": map[string]interface{}{
+				"instancetype": instancetype,
+				"preference":   preference,
+				"template": map[string]interface{}{
+					"spec": map[string]interface{}{},
+				},
+			},
+		}
+		if withStatus {
+			object["status"] = map[string]interface{}{
+				"instancetypeRef": map[string]interface{}{
+					"name": "test-instancetype",
+					"kind": "VirtualMachineClusterInstancetype",
+					"controllerRevisionRef": map[string]interface{}{
+						"name": "test-instancetype-revision",
+					},
+				},
+				"preferenceRef": map[string]interface{}{
+					"name": "test-preference",
+					"kind": "VirtualMachineClusterPreference",
+					"controllerRevisionRef": map[string]interface{}{
+						"name": "test-preference-revision",
+					},
+				},
+			}
+		}
+		return &unstructured.Unstructured{Object: object}
+	}
+
+	restore := &velerov1.Restore{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-restore", Namespace: "default"},
+		Spec:       velerov1.RestoreSpec{IncludedNamespaces: []string{"default"}},
+	}
+
+	revisionNames := func(output *velero.RestoreItemActionExecuteOutput) (string, string) {
+		spec := output.UpdatedItem.UnstructuredContent()["spec"].(map[string]interface{})
+		instancetype, _ := spec["instancetype"].(map[string]interface{})
+		preference, _ := spec["preference"].(map[string]interface{})
+		instancetypeRevision, _ := instancetype["revisionName"].(string)
+		preferenceRevision, _ := preference["revisionName"].(string)
+		return instancetypeRevision, preferenceRevision
+	}
+
+	hasResource := func(output *velero.RestoreItemActionExecuteOutput, resource, name string) bool {
+		for _, item := range output.AdditionalItems {
+			if item.GroupResource.Resource == resource && item.Name == name {
+				return true
+			}
+		}
+		return false
+	}
+
+	logrus.SetLevel(logrus.ErrorLevel)
+	action := NewVMRestoreItemAction(logrus.StandardLogger())
+
+	t.Run("Revision names missing from the spec are restored from the backed up status", func(t *testing.T) {
+		output, err := action.Execute(&velero.RestoreItemActionExecuteInput{
+			Item:           newVM("", "", false),
+			ItemFromBackup: newVM("", "", true),
+			Restore:        restore,
+		})
+		assert.NoError(t, err)
+
+		instancetypeRevision, preferenceRevision := revisionNames(output)
+		assert.Equal(t, "test-instancetype-revision", instancetypeRevision)
+		assert.Equal(t, "test-preference-revision", preferenceRevision)
+
+		// The revision names also make the restore graph pull in the
+		// ControllerRevisions holding the captured instance type and preference.
+		assert.True(t, hasResource(output, "controllerrevisions", "test-instancetype-revision"))
+		assert.True(t, hasResource(output, "controllerrevisions", "test-preference-revision"))
+	})
+
+	t.Run("Revision names already in the spec are not overwritten", func(t *testing.T) {
+		output, err := action.Execute(&velero.RestoreItemActionExecuteInput{
+			Item:           newVM("spec-instancetype-revision", "spec-preference-revision", false),
+			ItemFromBackup: newVM("spec-instancetype-revision", "spec-preference-revision", true),
+			Restore:        restore,
+		})
+		assert.NoError(t, err)
+
+		instancetypeRevision, preferenceRevision := revisionNames(output)
+		assert.Equal(t, "spec-instancetype-revision", instancetypeRevision)
+		assert.Equal(t, "spec-preference-revision", preferenceRevision)
+	})
+
+	t.Run("Backed up status without controller revisions is tolerated", func(t *testing.T) {
+		output, err := action.Execute(&velero.RestoreItemActionExecuteInput{
+			Item:           newVM("", "", false),
+			ItemFromBackup: newVM("", "", false),
+			Restore:        restore,
+		})
+		assert.NoError(t, err)
+
+		instancetypeRevision, preferenceRevision := revisionNames(output)
+		assert.Empty(t, instancetypeRevision)
+		assert.Empty(t, preferenceRevision)
+	})
+
+	t.Run("Missing item from backup is tolerated", func(t *testing.T) {
+		output, err := action.Execute(&velero.RestoreItemActionExecuteInput{
+			Item:    newVM("", "", false),
+			Restore: restore,
+		})
+		assert.NoError(t, err)
+
+		instancetypeRevision, preferenceRevision := revisionNames(output)
+		assert.Empty(t, instancetypeRevision)
+		assert.Empty(t, preferenceRevision)
+	})
+}
