@@ -67,7 +67,21 @@ func TestVmiRestoreExecute(t *testing.T) {
 		},
 		{"Owned VMI missing the isOwned annotation should be skipped",
 			velero.RestoreItemActionExecuteInput{
+				// Velero resets the metadata of the item being restored before
+				// restore item actions run, which removes the owner references.
+				// They are only left on the item taken from the backup.
 				Item: &unstructured.Unstructured{
+					Object: map[string]interface{}{
+						"apiVersion": "kubevirt.io",
+						"kind":       "VirtualMachineInstance",
+						"metadata": map[string]interface{}{
+							"name":      "test-vmi",
+							"namespace": "test-namespace",
+							"labels":    map[string]string{},
+						},
+					},
+				},
+				ItemFromBackup: &unstructured.Unstructured{
 					Object: map[string]interface{}{
 						"apiVersion": "kubevirt.io",
 						"kind":       "VirtualMachineInstance",
