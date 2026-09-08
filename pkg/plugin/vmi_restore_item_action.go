@@ -91,7 +91,7 @@ func (p *VMIRestorePlugin) Execute(input *velero.RestoreItemActionExecuteInput) 
 	// Velero removes the owner references from the item being restored before
 	// restore item actions run, so they have to be read from the pristine item
 	// taken from the backup.
-	if isOwnedInBackup(input.ItemFromBackup) {
+	if len(backedUpOwnerReferences(input.ItemFromBackup, vmi)) > 0 {
 		p.log.Infof("VMI %v/%v has owner references but is missing the %v annotation, it doesn't need to be restored",
 			vmi.GetNamespace(), vmi.GetName(), AnnIsOwned)
 		return velero.NewRestoreItemActionExecuteOutput(input.Item).WithoutRestore(), nil
@@ -131,24 +131,4 @@ func removeRestrictedLabels(labels map[string]string) map[string]string {
 		delete(labels, label)
 	}
 	return labels
-}
-
-// isOwnedInBackup reports whether the item as it was taken from the backup is
-// owned by another object.
-//
-// This mirrors isVMIOwned, which VMIBackupItemAction uses to decide whether to
-// add the AnnIsOwned annotation, but reads the pristine item from the backup:
-// Velero resets the metadata of the item being restored before restore item
-// actions run, and that removes the owner references.
-func isOwnedInBackup(itemFromBackup runtime.Unstructured) bool {
-	if itemFromBackup == nil {
-		return false
-	}
-
-	metadata, err := meta.Accessor(itemFromBackup)
-	if err != nil {
-		return false
-	}
-
-	return len(metadata.GetOwnerReferences()) > 0
 }
