@@ -81,6 +81,8 @@ func (p *VMRestorePlugin) Execute(input *velero.RestoreItemActionExecuteInput) (
 		util.GenerateNewFirmwareUUID(&vm.Spec.Template.Spec, vm.Name, vm.Namespace, string(vm.UID))
 	}
 
+	p.restoreControllerRevisionNames(vm, input.ItemFromBackup)
+
 	item, err := runtime.DefaultUnstructuredConverter.ToUnstructured(vm)
 	if err != nil {
 		return nil, errors.WithStack(err)
@@ -93,4 +95,58 @@ func (p *VMRestorePlugin) Execute(input *velero.RestoreItemActionExecuteInput) (
 	}
 
 	return output, nil
+}
+
+// restoreControllerRevisionNames copies the instance type and preference
+// ControllerRevision names from the backed up VirtualMachine status into its
+// spec when the spec does not already carry them.
+//
+// VMBackupItemAction normally performs this copy during backup, because Velero
+// removes the status of an object before restore:
+//
+// https://velero.io/docs/main/restore-reference/#restore-status-field-of-objects
+//
+// That action never runs when the backup bundle was not produced by a standard
+// Velero backup (e.g., a custom inventory process for DR). Without the revision
+// names the VM controller repopulates the status from the instance type as it
+// exists on the destination cluster rather than the revision captured at backup
+// time, and NewVirtualMachineRestoreGraph does not pull the ControllerRevision
+// in as an additional item to restore.
+//
+// Velero resets the status of the item being restored before restore item
+// actions run, so the status is read from the pristine item taken from the
+// backup instead.
+func (p *VMRestorePlugin) restoreControllerRevisionNames(vm *kvcore.VirtualMachine, itemFromBackup runtime.Unstructured) {
+	needsInstancetype := vm.Spec.Instancetype != nil && vm.Spec.Instancetype.RevisionName == ""
+	needsPreference := vm.Spec.Preference != nil && vm.Spec.Preference.RevisionName == ""
+	if !needsInstancetype && !needsPreference {
+		return
+	}
+
+	if itemFromBackup == nil {
+		return
+	}
+
+	backedUpVM := new(kvcore.VirtualMachine)
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(itemFromBackup.UnstructuredContent(), backedUpVM); err != nil {
+		// Best effort, the virtual machine is still restored without the revision names.
+		p.log.Infof("Failed to read the status of the backed up virtual machine: %v", err)
+		return
+	}
+
+	if needsInstancetype && hasControllerRevisionRef(backedUpVM.Status.InstancetypeRef) {
+		revisionName := backedUpVM.Status.InstancetypeRef.ControllerRevisionRef.Name
+		p.log.Infof("Setting instance type revision name %v from the backed up virtual machine status", revisionName)
+		vm.Spec.Instancetype.RevisionName = revisionName
+	}
+
+	if needsPreference && hasControllerRevisionRef(backedUpVM.Status.PreferenceRef) {
+		revisionName := backedUpVM.Status.PreferenceRef.ControllerRevisionRef.Name
+		p.log.Infof("Setting preference revision name %v from the backed up virtual machine status", revisionName)
+		vm.Spec.Preference.RevisionName = revisionName
+	}
+}
+
+func hasControllerRevisionRef(statusRef *kvcore.InstancetypeStatusRef) bool {
+	return statusRef != nil && statusRef.ControllerRevisionRef != nil && statusRef.ControllerRevisionRef.Name != ""
 }
