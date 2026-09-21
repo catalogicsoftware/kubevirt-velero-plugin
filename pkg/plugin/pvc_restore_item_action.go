@@ -27,6 +27,7 @@ import (
 	"github.com/vmware-tanzu/velero/pkg/plugin/velero"
 
 	corev1api "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -78,7 +79,7 @@ func (p *PVCRestoreItemAction) Execute(input *velero.RestoreItemActionExecuteInp
 	// manifest. Without this annotation, CDI's admission webhook will reject
 	// the DataVolume restore because the destination PVC already exists.
 	if _, hasPopulatedFor := annotations[AnnPopulatedFor]; !hasPopulatedFor {
-		dvName := getOwnerDataVolumeName(&pvc)
+		dvName := getOwnerDataVolumeName(&pvc, backedUpOwnerReferences(input.ItemFromBackup, &pvc))
 		if dvName != "" {
 			p.log.Infof("PVC %v/%v is owned by DataVolume %v but missing %v annotation, adding it",
 				pvc.GetNamespace(), pvc.GetName(), dvName, AnnPopulatedFor)
@@ -100,8 +101,11 @@ func (p *PVCRestoreItemAction) Execute(input *velero.RestoreItemActionExecuteInp
 // using multiple detection methods:
 //  1. ownerReferences with Kind=DataVolume
 //  2. CDI label cdi.kubevirt.io/storage.dataVolumeName
-func getOwnerDataVolumeName(pvc *corev1api.PersistentVolumeClaim) string {
-	for _, ownerRef := range pvc.GetOwnerReferences() {
+//
+// The owner references are passed in rather than read from the PVC because
+// Velero removes them from the item being restored, see backedUpOwnerReferences.
+func getOwnerDataVolumeName(pvc *corev1api.PersistentVolumeClaim, ownerReferences []metav1.OwnerReference) string {
+	for _, ownerRef := range ownerReferences {
 		if ownerRef.Kind == "DataVolume" {
 			return ownerRef.Name
 		}
