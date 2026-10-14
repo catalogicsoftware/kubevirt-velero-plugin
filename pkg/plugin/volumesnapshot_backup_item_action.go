@@ -144,7 +144,8 @@ func (p *VolumeSnapshotBackupItemAction) getPVCUID(namespace, pvcName string) (s
 			return pvcUID, nil
 		}
 		// PVC not found in cache but namespace is cached, so it doesn't exist
-		return "", fmt.Errorf("PVC %s not found in namespace %s", pvcName, namespace)
+		p.log.Infof("PVC %s/%s of the VolumeSnapshot no longer exists, the VolumeSnapshot gets no PVC UID label", namespace, pvcName)
+		return "", nil
 	}
 
 	// Namespace not cached yet, fetch all PVCs in the namespace at once
@@ -170,6 +171,7 @@ func (p *VolumeSnapshotBackupItemAction) getPVCUID(namespace, pvcName string) (s
 		return pvcUID, nil
 	}
 
-	return "", fmt.Errorf("PVC %s not found in namespace %s", pvcName, namespace)
+	p.log.Infof("PVC %s/%s of the VolumeSnapshot no longer exists, the VolumeSnapshot gets no PVC UID label", namespace, pvcName)
+	return "", nil
 }
 
