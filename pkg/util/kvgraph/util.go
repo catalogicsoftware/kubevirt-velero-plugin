@@ -81,34 +81,52 @@ func addNetworkGraph(vmiSpec v1.VirtualMachineInstanceSpec, namespace string, re
 }
 
 func addVolumeGraph(vmiSpec v1.VirtualMachineInstanceSpec, vmName, namespace string, resources []velero.ResourceIdentifier) ([]velero.ResourceIdentifier, error) {
+	seen := make(map[string]struct{}) // Deduplication map
+
+	// Local wrapper: We need this since UserDataSecretRef and NetworkDataSecretRef may contain the same reference and we don;t want duplicates.
+	addResource := func(name, namespace, resource string, resources []velero.ResourceIdentifier) []velero.ResourceIdentifier {
+		if groupResource, ok := KVObjectGraph[resource]; ok {
+			key := fmt.Sprintf("%s/%s/%s", groupResource.String(), namespace, name)
+			if _, exists := seen[key]; !exists {
+				seen[key] = struct{}{}
+				resources = append(resources, velero.ResourceIdentifier{
+					GroupResource: groupResource,
+					Namespace:     namespace,
+					Name:          name,
+				})
+			}
+		}
+		return resources
+	}
+
 	for _, volume := range vmiSpec.Volumes {
 		switch {
 		case volume.DataVolume != nil:
-			resources = addVeleroResource(volume.DataVolume.Name, namespace, "datavolumes", resources)
-			resources = addVeleroResource(volume.DataVolume.Name, namespace, "persistentvolumeclaims", resources)
+			resources = addResource(volume.DataVolume.Name, namespace, "datavolumes", resources)
+			resources = addResource(volume.DataVolume.Name, namespace, "persistentvolumeclaims", resources)
 		case volume.PersistentVolumeClaim != nil:
-			resources = addVeleroResource(volume.PersistentVolumeClaim.ClaimName, namespace, "persistentvolumeclaims", resources)
+			resources = addResource(volume.PersistentVolumeClaim.ClaimName, namespace, "persistentvolumeclaims", resources)
 		case volume.MemoryDump != nil:
-			resources = addVeleroResource(volume.MemoryDump.ClaimName, namespace, "persistentvolumeclaims", resources)
+			resources = addResource(volume.MemoryDump.ClaimName, namespace, "persistentvolumeclaims", resources)
 		case volume.ConfigMap != nil:
-			resources = addVeleroResource(volume.ConfigMap.Name, namespace, "configmaps", resources)
+			resources = addResource(volume.ConfigMap.Name, namespace, "configmaps", resources)
 		case volume.Secret != nil:
-			resources = addVeleroResource(volume.Secret.SecretName, namespace, "secrets", resources)
+			resources = addResource(volume.Secret.SecretName, namespace, "secrets", resources)
 		case volume.ServiceAccount != nil:
-			resources = addVeleroResource(volume.ServiceAccount.ServiceAccountName, namespace, "serviceaccounts", resources)
+			resources = addResource(volume.ServiceAccount.ServiceAccountName, namespace, "serviceaccounts", resources)
 		case volume.CloudInitNoCloud != nil:
 			if volume.CloudInitNoCloud.UserDataSecretRef != nil {
-				resources = addVeleroResource(volume.CloudInitNoCloud.UserDataSecretRef.Name, namespace, "secrets", resources)
+				resources = addResource(volume.CloudInitNoCloud.UserDataSecretRef.Name, namespace, "secrets", resources)
 			}
 			if volume.CloudInitNoCloud.NetworkDataSecretRef != nil {
-				resources = addVeleroResource(volume.CloudInitNoCloud.NetworkDataSecretRef.Name, namespace, "secrets", resources)
+				resources = addResource(volume.CloudInitNoCloud.NetworkDataSecretRef.Name, namespace, "secrets", resources)
 			}
 		case volume.CloudInitConfigDrive != nil:
 			if volume.CloudInitConfigDrive.UserDataSecretRef != nil {
-				resources = addVeleroResource(volume.CloudInitConfigDrive.UserDataSecretRef.Name, namespace, "secrets", resources)
+				resources = addResource(volume.CloudInitConfigDrive.UserDataSecretRef.Name, namespace, "secrets", resources)
 			}
 			if volume.CloudInitConfigDrive.NetworkDataSecretRef != nil {
-				resources = addVeleroResource(volume.CloudInitConfigDrive.NetworkDataSecretRef.Name, namespace, "secrets", resources)
+				resources = addResource(volume.CloudInitConfigDrive.NetworkDataSecretRef.Name, namespace, "secrets", resources)
 			}
 		}
 	}
