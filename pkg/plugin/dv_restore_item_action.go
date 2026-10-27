@@ -101,8 +101,9 @@ func (p *DVRestoreItemAction) Execute(input *velero.RestoreItemActionExecuteInpu
 	}
 
 	// If the annotation is already present (from a standard Velero backup where
-	// DVBackupItemAction ran), do nothing.
-	if _, exists := annotations[AnnPrePopulated]; exists {
+	// DVBackupItemAction ran), do nothing. The copy of a renamed VM's
+	// DataVolume is marked populated under its own name instead.
+	if value, exists := annotations[AnnPrePopulated]; exists && value != renamedFrom(input.ItemFromBackup, dv.GetName()) {
 		p.log.Infof("DataVolume %v/%v already has %v annotation, no action needed", dv.GetNamespace(), dv.GetName(), AnnPrePopulated)
 		return velero.NewRestoreItemActionExecuteOutput(input.Item), nil
 	}
