@@ -37,6 +37,7 @@ func main() {
 		RegisterRestoreItemAction("kubevirt-velero-plugin/restore-pod-action", newPodRestoreItemAction).
 		RegisterRestoreItemAction("kubevirt-velero-plugin/restore-volumesnapshot-action", newVolumeSnapshotRestoreItemAction).
 		RegisterRestoreItemAction("kubevirt-velero-plugin/restore-networkattachmentdefinition-action", newNADRestoreItemAction).
+		RegisterRestoreItemAction("kubevirt-velero-plugin/restore-dv-action", newDVRestoreItemAction).
 		RegisterBackupItemAction("kubevirt-velero-plugin/backup-datavolume-action", newDVBackupItemAction).
 		RegisterBackupItemAction("kubevirt-velero-plugin/backup-pvc-action", newPVCBackupItemAction).
 		RegisterBackupItemAction("kubevirt-velero-plugin/backup-volumesnapshot-action", newVolumeSnapshotBackupItemAction).
@@ -79,6 +80,11 @@ func newVMIBackupItemAction(logger logrus.FieldLogger) (interface{}, error) {
 func newVMItemBlockAction(logger logrus.FieldLogger) (interface{}, error) {
 	logger.Debug("Creating VMItemBlockAction")
 	return plugin.NewVMItemBlockAction(logger), nil
+}
+
+func newDVRestoreItemAction(logger logrus.FieldLogger) (interface{}, error) {
+	logger.Debug("Creating DVRestoreItemAction")
+	return plugin.NewDVRestoreItemAction(logger), nil
 }
 
 func newVMRestoreItemAction(logger logrus.FieldLogger) (interface{}, error) {

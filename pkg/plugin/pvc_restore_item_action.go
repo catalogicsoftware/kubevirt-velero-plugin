@@ -26,6 +26,7 @@ import (
 	"github.com/vmware-tanzu/velero/pkg/plugin/velero"
 
 	corev1api "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -67,9 +68,48 @@ func (p *PVCRestoreItemAction) Execute(input *velero.RestoreItemActionExecuteInp
 	p.log.Infof("handling PVC %v/%v", pvc.GetNamespace(), pvc.GetName())
 
 	annotations := pvc.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+
 	_, inProgress := annotations[AnnInProgress]
 	if inProgress {
 		return velero.NewRestoreItemActionExecuteOutput(input.Item).WithoutRestore(), nil
+	}
+
+	// If the PVC is owned by a DataVolume and the populatedFor annotation is
+	// missing, add it. This is needed when the backup bundle was not produced
+	// by a standard Velero backup (e.g., custom inventory for DR), so the
+	// DVBackupItemAction never ran and the annotation is absent from the
+	// manifest. Without this annotation, CDI's admission webhook will reject
+	// the DataVolume restore because the destination PVC already exists.
+	if _, hasPopulatedFor := annotations[AnnPopulatedFor]; !hasPopulatedFor {
+		dvName := getOwnerDataVolumeName(&pvc, backedUpOwnerReferences(input.ItemFromBackup, &pvc))
+		if dvName != "" {
+			p.log.Infof("PVC %v/%v is owned by DataVolume %v but missing %v annotation, adding it",
+				pvc.GetNamespace(), pvc.GetName(), dvName, AnnPopulatedFor)
+			annotations[AnnPopulatedFor] = dvName
+			pvc.SetAnnotations(annotations)
+		}
+	}
+
+	// The copy of a renamed VM's disk is populated for the copy of its
+	// DataVolume, which has the same name, and its persistent state belongs to
+	// the renamed VM.
+	if backedUpName := renamedFrom(input.ItemFromBackup, pvc.Name); backedUpName != "" {
+		if annotations[AnnPopulatedFor] == backedUpName {
+			annotations[AnnPopulatedFor] = pvc.Name
+			pvc.SetAnnotations(annotations)
+		}
+		if vmName, ok := pvc.Labels[persistentStateLabel]; ok {
+			options, err := util.VMOptionsOf(input.Restore, pvc.Namespace, vmName)
+			if err != nil {
+				return nil, err
+			}
+			if options != nil && options.NewName != "" {
+				pvc.Labels[persistentStateLabel] = options.NewName
+			}
+		}
 	}
 
 	// Remove resource UID labels added during backup
@@ -101,3 +141,25 @@ func (p *PVCRestoreItemAction) Execute(input *velero.RestoreItemActionExecuteInp
 	return velero.NewRestoreItemActionExecuteOutput(&unstructured.Unstructured{Object: item}), nil
 }
 
+// getOwnerDataVolumeName returns the name of the DataVolume that owns this PVC,
+// using multiple detection methods:
+//  1. ownerReferences with Kind=DataVolume
+//  2. CDI label cdi.kubevirt.io/storage.dataVolumeName
+//
+// The owner references are passed in rather than read from the PVC because
+// Velero removes them from the item being restored, see backedUpOwnerReferences.
+func getOwnerDataVolumeName(pvc *corev1api.PersistentVolumeClaim, ownerReferences []metav1.OwnerReference) string {
+	for _, ownerRef := range ownerReferences {
+		if ownerRef.Kind == "DataVolume" {
+			return ownerRef.Name
+		}
+	}
+
+	if labels := pvc.GetLabels(); labels != nil {
+		if dvName, ok := labels["cdi.kubevirt.io/storage.dataVolumeName"]; ok && dvName != "" {
+			return dvName
+		}
+	}
+
+	return ""
+}
