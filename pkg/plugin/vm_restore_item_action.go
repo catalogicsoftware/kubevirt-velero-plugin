@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/vmware-tanzu/velero/pkg/plugin/velero"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
@@ -71,17 +72,58 @@ func (p *VMRestorePlugin) Execute(input *velero.RestoreItemActionExecuteInput) (
 		vm.Spec.Running = nil
 	}
 
-	if util.ShouldClearMacAddress(input.Restore) {
+	options, err := p.optionsOf(input)
+	if err != nil {
+		return nil, err
+	}
+
+	// The VM's own options take the place of the restore-wide ones.
+	clearMacAddresses := util.ShouldClearMacAddress(input.Restore)
+	newFirmwareUUID := util.ShouldGenerateNewFirmwareUUID(input.Restore)
+	if options != nil {
+		clearMacAddresses = options.ClearMacAddresses
+		newFirmwareUUID = options.NewFirmwareUUID
+	}
+	var rename *util.VMOptions
+	if options != nil && options.NewName != "" {
+		rename = options
+	}
+
+	if clearMacAddresses {
 		p.log.Info("Clear virtual machine MAC addresses")
 		util.ClearMacAddress(&vm.Spec.Template.Spec)
 	}
 
-	if util.ShouldGenerateNewFirmwareUUID(input.Restore) {
+	if newFirmwareUUID {
 		p.log.Info("Generate new firmware UUID")
 		util.GenerateNewFirmwareUUID(&vm.Spec.Template.Spec, vm.Name, vm.Namespace, string(vm.UID))
 	}
 
 	p.restoreControllerRevisionNames(vm, input.ItemFromBackup)
+
+	// The engine restores the copies of a renamed VM's objects when it is given
+	// them by their backed up names, so the graph is built from the backed up VM.
+	graphVM := vm
+	if rename != nil {
+		graphVM = vm.DeepCopy()
+		graphVM.Name = rename.Name
+	}
+	additionalItems, err := kvgraph.NewVirtualMachineRestoreGraph(graphVM)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+
+	if rename != nil {
+		p.log.Infof("Restoring virtual machine %s/%s as %s", rename.Namespace, rename.Name, rename.NewName)
+		if err := renameVM(vm, rename); err != nil {
+			return nil, err
+		}
+		targetNamespace := vm.Namespace
+		if mapped, ok := input.Restore.Spec.NamespaceMapping[vm.Namespace]; ok {
+			targetNamespace = mapped
+		}
+		warnAboutCopiedCloudInit(p.log, vm, rename, targetNamespace)
+	}
 
 	item, err := runtime.DefaultUnstructuredConverter.ToUnstructured(vm)
 	if err != nil {
@@ -89,12 +131,22 @@ func (p *VMRestorePlugin) Execute(input *velero.RestoreItemActionExecuteInput) (
 	}
 
 	output := velero.NewRestoreItemActionExecuteOutput(&unstructured.Unstructured{Object: item})
-	output.AdditionalItems, err = kvgraph.NewVirtualMachineRestoreGraph(vm)
+	output.AdditionalItems = additionalItems
+	return output, nil
+}
+
+// optionsOf returns the restore's options for the VM, or nil when it has none.
+// The engine gives a renamed VM its new name before the actions run, and the
+// backed up VM keeps the old one, so the VM is looked up by the latter.
+func (p *VMRestorePlugin) optionsOf(input *velero.RestoreItemActionExecuteInput) (*util.VMOptions, error) {
+	if input.ItemFromBackup == nil {
+		return nil, nil
+	}
+	backedUp, err := meta.Accessor(input.ItemFromBackup)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-
-	return output, nil
+	return util.VMOptionsOf(input.Restore, backedUp.GetNamespace(), backedUp.GetName())
 }
 
 // restoreControllerRevisionNames copies the instance type and preference

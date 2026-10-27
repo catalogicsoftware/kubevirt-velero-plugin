@@ -93,6 +93,25 @@ func (p *PVCRestoreItemAction) Execute(input *velero.RestoreItemActionExecuteInp
 		}
 	}
 
+	// The copy of a renamed VM's disk is populated for the copy of its
+	// DataVolume, which has the same name, and its persistent state belongs to
+	// the renamed VM.
+	if backedUpName := renamedFrom(input.ItemFromBackup, pvc.Name); backedUpName != "" {
+		if annotations[AnnPopulatedFor] == backedUpName {
+			annotations[AnnPopulatedFor] = pvc.Name
+			pvc.SetAnnotations(annotations)
+		}
+		if vmName, ok := pvc.Labels[persistentStateLabel]; ok {
+			options, err := util.VMOptionsOf(input.Restore, pvc.Namespace, vmName)
+			if err != nil {
+				return nil, err
+			}
+			if options != nil && options.NewName != "" {
+				pvc.Labels[persistentStateLabel] = options.NewName
+			}
+		}
+	}
+
 	// Remove resource UID labels added during backup
 	if pvc.Labels != nil {
 		if _, exists := pvc.Labels[util.PVCUIDLabel]; exists {
