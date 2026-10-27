@@ -30,6 +30,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+
+	"kubevirt.io/kubevirt-velero-plugin/pkg/util"
 )
 
 // PVCRestoreItemAction is a backup item action for restoring DataVolumes
@@ -72,6 +74,7 @@ func (p *PVCRestoreItemAction) Execute(input *velero.RestoreItemActionExecuteInp
 		return velero.NewRestoreItemActionExecuteOutput(input.Item).WithoutRestore(), nil
 	}
 
+	updated := false
 	// If the PVC is owned by a DataVolume and the populatedFor annotation is
 	// missing, add it. This is needed when the backup bundle was not produced
 	// by a standard Velero backup (e.g., custom inventory for DR), so the
@@ -85,16 +88,39 @@ func (p *PVCRestoreItemAction) Execute(input *velero.RestoreItemActionExecuteInp
 				pvc.GetNamespace(), pvc.GetName(), dvName, AnnPopulatedFor)
 			annotations[AnnPopulatedFor] = dvName
 			pvc.SetAnnotations(annotations)
-
-			pvcMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&pvc)
-			if err != nil {
-				return nil, errors.WithStack(err)
-			}
-			return velero.NewRestoreItemActionExecuteOutput(&unstructured.Unstructured{Object: pvcMap}), nil
+			updated = true
 		}
 	}
 
-	return velero.NewRestoreItemActionExecuteOutput(input.Item), nil
+	// The copy of a renamed VM's disk is populated for the copy of its
+	// DataVolume, which has the same name, and its persistent state belongs to
+	// the renamed VM.
+	if backedUpName := renamedFrom(input.ItemFromBackup, pvc.Name); backedUpName != "" {
+		if annotations[AnnPopulatedFor] == backedUpName {
+			annotations[AnnPopulatedFor] = pvc.Name
+			pvc.SetAnnotations(annotations)
+			updated = true
+		}
+		if vmName, ok := pvc.Labels[persistentStateLabel]; ok {
+			options, err := util.VMOptionsOf(input.Restore, pvc.Namespace, vmName)
+			if err != nil {
+				return nil, err
+			}
+			if options != nil && options.NewName != "" {
+				pvc.Labels[persistentStateLabel] = options.NewName
+				updated = true
+			}
+		}
+	}
+
+	if !updated {
+		return velero.NewRestoreItemActionExecuteOutput(input.Item), nil
+	}
+	pvcMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&pvc)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	return velero.NewRestoreItemActionExecuteOutput(&unstructured.Unstructured{Object: pvcMap}), nil
 }
 
 // getOwnerDataVolumeName returns the name of the DataVolume that owns this PVC,
