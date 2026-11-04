@@ -108,7 +108,7 @@ func renameVM(vm *kvcore.VirtualMachine, rename *util.VMOptions) error {
 	}
 	renameLabelValues(vm.Labels, rename.Name, rename.NewName)
 	renameLabelValues(vm.Spec.Template.ObjectMeta.Labels, rename.Name, rename.NewName)
-	return nil
+	return renameHarvesterDisks(vm, rename)
 }
 
 func renameSecretRefs(copyOf func(resource, name string) string, refs ...*corev1.LocalObjectReference) {
