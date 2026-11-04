@@ -92,6 +92,7 @@ func (p *VMRestorePlugin) Execute(input *velero.RestoreItemActionExecuteInput) (
 	if clearMacAddresses {
 		p.log.Info("Clear virtual machine MAC addresses")
 		util.ClearMacAddress(&vm.Spec.Template.Spec)
+		delete(vm.Annotations, harvesterMacAddresses)
 	}
 
 	if newFirmwareUUID {

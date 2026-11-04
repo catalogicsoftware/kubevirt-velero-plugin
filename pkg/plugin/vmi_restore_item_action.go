@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/vmware-tanzu/velero/pkg/plugin/velero"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	kvcore "kubevirt.io/api/core/v1"
 
@@ -102,14 +103,23 @@ func (p *VMIRestorePlugin) Execute(input *velero.RestoreItemActionExecuteInput) 
 		return nil, err
 	}
 
+	// The item is changed in place: a typed copy would lose the fields of a
+	// newer KubeVirt than this plugin knows.
+	item := input.Item.UnstructuredContent()
 	if util.ShouldClearMacAddress(input.Restore) {
 		p.log.Info("Clear virtual machine instance MAC addresses")
 		util.ClearMacAddress(&vmi.Spec)
+		if err := clearMacAddresses(item); err != nil {
+			return nil, errors.WithStack(err)
+		}
 	}
 
 	if util.ShouldGenerateNewFirmwareUUID(input.Restore) {
 		p.log.Info("Generate new firmware UUID")
 		util.GenerateNewFirmwareUUID(&vmi.Spec, vmi.Name, vmi.Namespace, string(vmi.UID))
+		if err := unstructured.SetNestedField(item, string(vmi.Spec.Domain.Firmware.UUID), "spec", "domain", "firmware", "uuid"); err != nil {
+			return nil, errors.WithStack(err)
+		}
 	}
 
 	// Restricted labels must be cleared otherwise the VMI will be rejected.
@@ -124,6 +134,20 @@ func (p *VMIRestorePlugin) Execute(input *velero.RestoreItemActionExecuteInput) 
 	}
 
 	return output, nil
+}
+
+// clearMacAddresses removes the MAC address of every interface of a VMI.
+func clearMacAddresses(vmi map[string]interface{}) error {
+	interfaces, found, err := unstructured.NestedSlice(vmi, "spec", "domain", "devices", "interfaces")
+	if err != nil || !found {
+		return err
+	}
+	for _, iface := range interfaces {
+		if iface, ok := iface.(map[string]interface{}); ok {
+			delete(iface, "macAddress")
+		}
+	}
+	return unstructured.SetNestedSlice(vmi, interfaces, "spec", "domain", "devices", "interfaces")
 }
 
 func removeRestrictedLabels(labels map[string]string) map[string]string {
